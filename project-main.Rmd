@@ -1,0 +1,892 @@
+---
+title: "Analisi rete relazionale tra i personaggi di Grey's Anatomy"
+author: "Elisabetta - 170691"
+date: "`r Sys.Date()`"
+css: stileProgetto.css
+output: 
+  rmdformats::readthedown:
+  highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(rmdformats)
+#knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+## Global options
+options(max.print=2000)
+knitr::opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+```{r caricamento librerie, include=FALSE}
+library(bibliometrix)
+library(dplyr)
+library(ggplot2)
+library(tidyverse) # Collection of all the good stuff like dplyr, ggplot2 ect.
+library(magrittr) # For extra-piping operators (eg. %<>%)
+library(data.table) # Good format to work with large datasets
+library(skimr) # Nice descriptives
+library(igraph) # Network analysis
+library(tidygraph) # Tidy network analysis
+library(ggraph) # ggplot-like nw plotting
+library(Matrix)
+library(purrr)
+library(plotly)
+library(htmltools)
+library(multigraph)
+library(wordcloud2)
+library(wordcloud)
+library(poweRlaw)
+library(corrplot)
+library(signnet)
+library(tidytext)
+```
+
+## Introduzione
+
+Grey's Anatomy è un medical drama creato da Shonda Rhimes e ambientato
+presso il Seattle Grace Hospital (successivamente Seattle Grace Mercy
+West e Grey Sloan Memorial Hospital). La serie segue le vicende
+professionali e personali di medici specializzandi, chirurghi e
+personale sanitario, costruendo nel tempo una fitta rete di relazioni
+sentimentali, amicali e lavorative. In questo studio sono state prese in
+esame la seconda e la settima stagione della serie, poiché rappresentano
+due momenti differenti dell'evoluzione narrativa e relazionale dei
+personaggi. La **seconda stagione** (2005-2006) coincide con la fase
+iniziale della serie e approfondisce le dinamiche tra il gruppo
+originario di specializzandi composto da Meredith Grey, Cristina Yang,
+Izzie Stevens, Alex Karev e George O'Malley. La **settima stagione**
+(2010-2011), invece, si colloca in una fase di maggiore maturità della
+serie e segue le conseguenze emotive della sparatoria avvenuta al
+termine della stagione precedente. La stagione è caratterizzata da
+processi di ricostruzione personale e dalla nascita di nuove relazioni,
+offrendo una rete sociale più estesa e complessa rispetto a quella
+osservabile nella seconda stagione.
+
+```{r}
+nodes<-read.csv("Personaggi.csv")
+archi<-read.csv("relazioni.csv")
+edges<- filter(archi,stagione == 2)
+rete = tbl_graph(nodes = nodes, edges = edges, directed = FALSE)
+rete <- rete %>% 
+  activate(nodes) %>%
+  filter(centrality_degree() > 0)
+
+coords<-  layout_in_circle(rete)
+coords_espanse <- coords * 3
+ggraph(rete, layout = coords_espanse, weights = NA) + 
+ geom_edge_link(alpha = 1, 
+                color = "gray") +
+  geom_node_text(aes(label = Nome), repel = FALSE, vjust = 0.6, size = 4) +
+  theme_graph() +
+  labs(title = "Rete Relazionale Stagione 2")
+```
+
+```{r}
+edges2<- filter(archi,stagione == 7)
+rete2 = tbl_graph(nodes = nodes, edges = edges2, directed = FALSE)
+rete2 <- rete2 %>%  
+  activate(nodes) %>%
+  filter(centrality_degree() > 0)
+coords<-  layout_in_circle(rete2)
+coords_espanse <- coords * 3  
+ggraph(rete2, layout = coords_espanse, weights = NA) + 
+  geom_edge_link(alpha = 1, 
+                 color = "gray") +
+  # geom_node_point(aes(color = as.factor(Ruolo)), size = 5) +
+  geom_node_text(aes(label = Nome), repel = FALSE, vjust = 0.6, size = 4) +
+  theme_graph() +
+  labs(title = "Rete Relazionale stagione 7")
+```
+
+## Quali sono i personaggi che hanno un numero maggiore di relazioni? Quali sono i personaggi più influenti? Quali occupano una posizione centrale all’interno della rete relazionale?
+
+L'analisi del grado mostra che Miranda Bailey è il personaggio con il
+maggior numero di relazioni dirette (12), seguita da Meredith Grey e
+Richard Webber (11). Questo risultato appare coerente con la struttura
+narrativa della seconda stagione.
+
+In termini di influenza, Miranda Bailey corrisponde al personaggio più
+influente della rete. Ciò significa che Bailey non solo possiede
+numerose relazioni, ma è collegata a personaggi che a loro volta
+occupano posizioni importanti nella rete. Meredith e Richard presentano
+valori molto simili, confermando la loro rilevanza nella struttura
+narrativa.
+
+La misura di closeness evidenzia ancora una volta Miranda Bailey come il
+personaggio più centrale della rete. L'analisi delle misure di
+centralità evidenzia come Miranda Bailey rappresenti il nodo più
+importante della rete relazionale della seconda stagione.
+
+```{r 1.}
+
+grado = 
+  rete %>% 
+  activate(nodes) %>% 
+  mutate(degree = centrality_degree(), 
+         pagerank = centrality_pagerank(), 
+         closeness = centrality_closeness())  %>% 
+  select(Nome, degree, pagerank, closeness) 
+
+personaggi = as.list(grado)$nodes
+
+personaggi %>% 
+  arrange(desc(degree)) %>% 
+  arrange(desc(pagerank)) %>% 
+  arrange(desc(closeness))
+```
+
+## Quali sono i personaggi che fungono da intermediari tra i diversi personaggi?
+
+I risultati ottenuti mostrano una forte centralizzazione della rete
+attorno ad alcuni personaggi chiave. In particolare, **Preston Burke**
+presenta il valore più alto di betweenness centrality (16.72),
+risultando il principale intermediario della rete. Nonostante non sia
+risultato uno tra i personaggi con maggior numero di relazioni, è
+evidente che risulta un nodo con la capacità di collegare storyline e
+gruppi narrativi distinti, dovuto anche dal suo collegamento con
+personaggi limitrofi nella rete.
+
+```{r 2.}
+grado = 
+  rete %>% 
+  activate(nodes) %>% 
+  mutate(betweenness = centrality_betweenness()) %>% 
+  select(Nome, betweenness)
+
+personaggi = as.list(grado)$nodes
+
+personaggi %>% 
+  arrange(desc(betweenness))
+```
+
+## Applicare diverse strategie di rimozione dei nodi per mettere alla prova la resilienza della rete relazionale.
+
+L'analisi di percolazione mostra che la rete non reagisce allo stesso
+modo a tutte le strategie di rimozione dei nodi. La curva relativa alla
+rimozione casuale decresce più lentamente, indicando una discreta
+robustezza rispetto a guasti non mirati: la perdita di nodi periferici o
+poco centrali non compromette immediatamente la connettività generale.
+Al contrario, le strategie basate su misure di centralità producono una
+frammentazione più rapida della giant component, segnalando che la
+struttura della rete dipende in modo rilevante da un insieme ristretto
+di nodi strategici. In particolare, la rimozione dei nodi ad alta
+betweenness risulta molto efficace nelle prime fasi, il che evidenzia il
+ruolo cruciale dei nodi-ponte nel mantenere collegati sottogruppi
+diversi. La rimozione per degree conferma l'importanza dei nodi molto
+connessi, ma il confronto con la betweenness suggerisce che non conta
+solo il numero di legami, bensi anche la loro posizione nella struttura
+complessiva. Infine, l'efficacia della strategia basata su PageRank
+indica la presenza di un nucleo di nodi influenti e reciprocamente
+centrali, la cui eliminazione compromette fortemente la coesione della
+rete. Nel complesso, il grafico suggerisce che la rete è relativamente
+resistente a rimozioni casuali, ma vulnerabile ad attacchi mirati sui
+nodi strutturalmente più importanti.
+
+```{r}
+percolate = function(g, size, d) {
+  
+  giant = vector()
+  
+  # initial size of giant component
+  c = components(g)
+  giant[1] = max(c$csize)
+  
+  names(d) = 1:length(d)
+  d = sort(d, decreasing=TRUE)
+  vital = as.integer(names(d[1:size]))
+  
+  for (i in 1:size) {
+    c = components(delete_vertices(g, vital[1:i]))
+    giant[i+1] = max(c$csize)
+  }
+  return(giant)
+}
+
+
+# resilience
+size = vcount(rete)/2
+# random
+rand = percolate(rete, size, d = sample(V(rete), size))    
+# degree
+deg = percolate(rete, size, d = degree(rete))    
+# pagerank
+pr = percolate(rete, size, d=page_rank(rete)$vector)    
+# betweenness
+bet = percolate(rete, size, d = betweenness(rete))    
+
+plot(0:size, deg, type = "l", col=1, xlab="Number of removed nodes", ylab="Size of giant component")
+lines(0:size, pr, col=2)
+lines(0:size, bet, col=3)
+lines(0:size, rand, col=4)
+lines(0:size, rep(vcount(rete)/2, size+1), lty=2)
+legend(x = "bottomleft", legend = c("deg", "pr", "btw", "rand"), lty = 1, col = 1:4)
+```
+
+## Come sono cambiate le relazioni tra i personaggi e l’importanza di ogni personaggio tra la seconda e la settimana stagione? Nella settimana stagione esiste un personaggio che più influente del personaggio Meredith?
+
+```{r}
+stag_2 = rete %>%    
+  activate(nodes) %>%    
+  mutate(degree_2 = centrality_degree(),           
+         betweenness_2 = centrality_betweenness())  %>%    
+  select(Nome, degree_2, betweenness_2)   
+stag_7 =    rete2 %>%    
+  activate(nodes) %>%    
+  mutate(degree_7 = centrality_degree(),           
+         betweenness_7 = centrality_betweenness())  %>%   
+  select(Nome, degree_7, betweenness_7)   
+personaggi2 = as.list(stag_2)$nodes  
+personaggi7 = as.list(stag_7)$nodes 
+```
+
+```{r}
+full_join_deg = full_join(personaggi2, personaggi7, by = "Nome")  %>%    
+  select (Nome, degree_2, degree_7) 
+df_long_de <- pivot_longer(   
+  full_join_deg,   
+  cols = c(degree_2,degree_7),   
+  names_to = "stagioni",   
+  values_to = "degree" )  
+ggplot(df_long_de,        aes(x = Nome, y = degree, fill = stagioni)) +
+  geom_bar(stat = "identity", position = "dodge") +    
+  theme(     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1) )
+```
+
+Un primo elemento che conferma questa differenza emerge
+dall'osservazione del degree, cioè del numero di legami diretti che
+ciascun personaggio intrattiene con gli altri. Nella seconda stagione i
+valori più alti si concentrano soprattutto su Miranda Bailey, Meredith
+Grey, Richard Webber, Derek Shepherd, Preston Burke, George O'Malley e
+Izzie Stevens.
+
+Nella settima stagione, invece, i valori di degree più elevati
+riguardano non solo Miranda, Meredith, Derek e Richard, ma anche
+Cristina, Lexie, Mark, Teddy e Owen. Questo allargamento suggerisce che
+il centro della rete non coincide più esclusivamente con l'asse
+originario tra specializzandi e medici senior, ma si articola in più
+poli narrativi attivi contemporaneamente.
+
+```{r}
+full_join_bet = full_join(personaggi2, personaggi7, by = "Nome")  %>%    
+  select (Nome, betweenness_2, betweenness_7)  
+df_long_de <- pivot_longer(   
+  full_join_bet,   
+  cols = c(betweenness_2,betweenness_7),   
+  names_to = "stagioni",   
+  values_to = "betweenness" )  
+ggplot(df_long_de, aes(x = Nome, y = betweenness, fill = stagioni)) +  
+  geom_bar(stat = "identity", position = "dodge") +    
+  theme(     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)   )
+```
+
+Nella seconda stagione la funzione di intermediazione è fortemente
+concentrata su pochi personaggi: in particolare Burke, Derek, Miranda,
+Meredith e Richard. Ciò indica una rete ancora fortemente polarizzata,
+nella quale alcuni nodi svolgono un ruolo decisivo nel connettere
+cluster differenti.
+
+Nella settima stagione, al contrario, la betweenness si redistribuisce e
+mette in evidenza una rete più complessa. Il dato più rilevante è
+l'emergere di Miranda Bailey, che assume il ruolo di principale nodo di
+mediazione dell'intero sistema.
+
+```{r}
+stag_2 = rete %>%    
+  activate(nodes) %>%    
+  mutate(pagerank_2 = centrality_pagerank(),          
+         closeness_2 = centrality_closeness())  %>%    
+  select(Nome, pagerank_2, closeness_2)   
+
+stag_7 =    rete2 %>%    
+  activate(nodes) %>%   
+  mutate(pagerank_7 = centrality_pagerank(),           
+         closeness_7 = centrality_closeness())  %>%    
+  select(Nome, pagerank_7, closeness_7)   
+personaggi2 = as.list(stag_2)$nodes  
+personaggi7 = as.list(stag_7)$nodes
+```
+
+```{r}
+full_join_clo = full_join(personaggi2, personaggi7, by = "Nome") %>%    
+  select(Nome, closeness_2, closeness_7) 
+df_long_clo <- pivot_longer(   
+  full_join_clo,  
+  cols = c(closeness_2, closeness_7),  
+  names_to = "stagioni",   
+  values_to = "closeness" ) 
+ggplot(df_long_clo, aes(x = Nome, y = closeness, fill = stagioni)) +   
+  geom_bar(stat = "identity", position = "dodge") +    
+  theme(     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)   )
+```
+
+In questo caso le differenze tra le due stagioni risultano meno
+drastiche rispetto a quelle osservate per la betweenness, poiché in
+entrambe molte figure principali occupano posizioni prossime al centro
+del sistema. Tuttavia, anche qui si nota un'evoluzione significativa.
+Nella seconda stagione i valori più alti sembrano concentrarsi
+soprattutto su Miranda, Meredith, Richard, Derek e George.
+
+Nella settima stagione la closeness resta elevata per i personaggi
+storici, ma si distribuisce su un numero maggiore di figure. Miranda e
+Meredith restano tra i nodi meglio posizionati; Derek e Richard
+mantengono un ruolo centrale all'interno della struttura ospedaliera; ma
+crescono anche personaggi come Cristina, Callie, Lexie, Mark e Teddy. La
+rete, dunque, diventa più distribuita senza per questo perdere
+compattezza: molti personaggi risultano infatti ben collocati e
+rapidamente raggiungibili.
+
+```{r}
+full_join_pag = full_join(personaggi2, personaggi7, by = "Nome") %>%    
+  select(Nome, pagerank_2, pagerank_7)  
+df_long_pag <- pivot_longer(   
+  full_join_pag,   
+  cols = c(pagerank_2, pagerank_7),   
+  names_to = "stagioni",   
+  values_to = "pagerank" ) 
+ggplot(df_long_pag,  aes(x = Nome, y = pagerank, fill = stagioni)) +   
+  geom_bar(stat = "identity", position = "dodge") +    
+  theme(     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)   )
+```
+
+Un'ulteriore conferma di questa trasformazione proviene dal PageRank,
+che non misura soltanto il numero di legami di un personaggio, ma il
+fatto che tali legami sono connessi a nodi a loro volta forti e
+autorevoli. In termini narrativi, un PageRank elevato indica
+l'inserimento di un personaggio nel nucleo più prestigioso e influente
+della rete. Nella seconda stagione questo valore appare fortemente
+concentrato su Miranda, Meredith, Richard, Derek, Burke, George e Izzie.
+
+Nella settima stagione il PageRank resta molto alto per Miranda e
+Meredith, ma si estende in modo evidente anche a Cristina, Owen, Mark,
+Teddy e Richard. Ciò riflette una maturazione della rete narrativa.
+
+## Quali tra i personaggi detiene all'interno della serie tv delle relazioni più intense?
+
+```{r 3.}
+tab = data.frame(
+  Personaggio = V(rete)$Nome,
+  strength = strength(rete)
+)
+
+barplot(
+  tab$strength[order(tab$strength, decreasing = TRUE)],
+  names.arg = tab$Personaggio[order(tab$strength, decreasing = TRUE)],
+  las = 2,
+  col = "steelblue",
+  main = "Strength dei personaggi",
+  ylab = "Strength"
+)
+```
+
+Meredith presenta la strength piu elevata perché nella seconda stagione
+costituisce il principale centro di condensazione relazionale: attorno a
+lei si intrecciano i legami affettivi, i conflitti sentimentali e le
+dinamiche quotidiane del gruppo degli specializzandi.
+
+La posizione molto alta di Derek si spiega soprattutto con il fatto che
+nella seconda stagione si trova al centro della linea narrativa piu
+forte: quella con Meredith e Addison. Il triangolo relazionale lo rende
+costantemente coinvolto in scene ad alta intensita emotiva.
+
+La posizione di Richard Webber è molto interessante, perche mostra che
+il peso relazionale non coincide solo con il melodramma amoroso.
+
+## **Quali sono i personaggi più simili e dissimili tra loro utilizzando costrutti sulla similarità ed eterogeneità dei nodi? I personaggi Meredith e Cristina che sono migliori amiche sono i nodi più simili tra loro oppure vi è un altro personaggio che risulta più simile alla protagonista rispetto alla sua migliore amica? Mentre quale personaggio risulta nella rete quello più dissimile rispetto alla protagonista? Quali sono i primi 5 personaggi che possiedono relazioni con personaggi molto diversi tra loro?**
+
+```{r 4.}
+
+similarity = function(g, type = "cosine", mode = "col" ) {
+  A = as_adjacency_matrix(g, sparse = FALSE)
+  if (mode == "row") {A = t(A)}
+  if (type == "cosine") {
+    euclidean = function(x) {sqrt(x %*% x)}
+    d = apply(A, 2, euclidean)
+    D = diag(1/d)
+    S = D %*% t(A) %*% A %*% D
+  }
+  if (type == "pearson") {
+    S = cor(A)
+  }
+  return(S)
+}
+S = similarity(rete)
+
+nodi = V(rete)$Nome
+colnames(S) <- nodi
+rownames(S) <- nodi
+corrplot(S)
+
+```
+
+In particolare, una forte area di similarità sembra concentrarsi attorno
+al gruppo degli specializzandi formato da Meredith, Cristina, George,
+Izzie e Alex.
+
+Questo risultato è plausibile perché questi personaggi condividono lo
+stesso spazio ospedaliero, sono inseriti nella medesima gerarchia
+formativa.
+
+Accanto a questo primo blocco, un’altra somiglianza importante riguarda
+la coppia Meredith-Derek. Nella seconda stagione i due personaggi
+occupano infatti il centro di una delle principali linee narrative, cioè
+la relazione sentimentale complicata dalla presenza di Addison.
+
+Un dato interessante riguarda il rapporto tra Meredith e Cristina.
+Sebbene siano legate da una delle amicizie più forti della serie e
+presentino certamente un’elevata similarità, non sembrano costituire la
+coppia più simile in assoluto.
+
+```{r}
+g = graph_from_data_frame(edges, directed = FALSE, vertices = tibble(1:nrow(nodes)))
+isolated = which(degree(g) == 0)
+g = delete_vertices(g, isolated)
+A <- as_adjacency_matrix(g, sparse = FALSE)
+rownames(A) <- nodi
+colnames(A) <- nodi
+D <- as.matrix(dist(A, method = "euclidean"))
+
+dist_meredith <- D["Meredith", ]
+dist_meredith <- dist_meredith[names(dist_meredith) != "Meredith"]
+dist_meredith <- data.frame( 
+  distanza = sort(dist_meredith, decreasing = TRUE))
+
+dist_meredith <- rownames_to_column(dist_meredith, var = "Nome")
+
+dist_meredith
+```
+
+Sul versante opposto, il personaggio che risulta più dissimile rispetto
+a Meredith è Finn. Anche questo dato appare coerente dal punto di vista
+narrativo. Meredith è immersa in una rete densa, costruita attorno agli
+intern, ai medici strutturati più integrati nella vita del Seattle Grace
+e a relazioni segnate da prossimità quotidiana, gerarchie professionali
+e intrecci sentimentali complessi. Finn, invece, appartiene solo
+parzialmente a questo ecosistema: entra nella storia come figura
+relativamente periferica, legata soprattutto a Meredith e al triangolo
+con Derek.
+
+```{r}
+blue_scrub <- "#4C78A8"
+ggplot(dist_meredith, aes(x = reorder(Nome, distanza), y = distanza)) +
+  geom_col(fill = blue_scrub, width = 0.72) +
+  annotate("text",
+           x = 0,
+           y = 0,
+           label = "Meredith",
+           fontface = "bold",
+           size = 4) +
+  coord_flip(clip = "off") +
+  expand_limits(y = 0) +
+  labs(
+    title = "Dissimilarità dei personaggi rispetto a Meredith Grey",
+    subtitle = "Valori più alti indicano maggiore dissimilarità",
+    x = NULL,
+    y = "Distanza"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+ #   plot.margin = margin(1, 20, 10, 20)
+  )
+```
+
+```{r}
+shannon = function(p) {
+  x = p * log2(p)
+  x = replace(x, is.nan(x), 0)
+  return(-sum(x))
+}
+
+simpson = function(p) {
+  x = 1 - sum(p * p)
+  return(x)
+}
+
+rao = function(p, D) {
+  x = diag(p) %*% D %*% diag(p)
+  return(sum(c(x)))
+}
+
+
+heterogeneity = function(g, D, mode = "col") {
+  A = as_adjacency_matrix(g, sparse = FALSE)
+  if (mode == "col") {
+    A = A %*% diag(1/colSums(A))
+    dim = 2 
+  } else {
+    A = diag(1/rowSums(A)) %*% A
+    dim = 1 
+  }
+  return(list(shannon = apply(A, dim, shannon), 
+              simpson = apply(A, dim, simpson), 
+              rao = apply(A, dim, rao, D)))
+}
+E = 1 - S
+
+het = heterogeneity(rete, E)
+
+nodi = V(rete)$Nome
+
+data = data.frame(
+  Nome = nodi, 
+  het
+)
+
+stp_rao = data %>%
+  select(Nome, rao) 
+
+stp_rao %>% arrange(desc(rao)) %>% head(5)
+```
+
+Questa interpretazione trova conferma anche nell’indice di Rao, che
+misura non soltanto la distribuzione dei legami, ma anche il grado di
+dissimilarità qualitativa tra i nodi connessi. L’ordinamento decrescente
+di questo indice mostra che Finn presenta il valore più elevato di
+eterogeneità, seguito da Erika e Callie. Il risultato suggerisce che
+questi personaggi occupino posizioni più differenziate rispetto al
+nucleo principale della rete.
+
+## **Quali personaggi sono inseriti soprattutto in relazioni positive? Quali sono maggiormente coinvolti in dinamiche conflittuali**? **Confrontando la rete di relazioni della stagione 2 con quella della stagione 7, come sono evoluti le tipologie di rapporti relazionali nel tempo?**
+
+```{r }
+set.seed(3)
+ggraph(rete, layout = "kk") +
+  geom_edge_link(aes(color = factor(sign), linetype = factor(sign)), show.legend = TRUE) +
+  geom_node_point(size = 3) +
+  geom_node_text(aes(label = Nome), repel = TRUE) +
+  scale_edge_color_manual(values = c("+1" = "green", "-1" = "red")) +
+  scale_edge_linetype_manual(values = c("+1" = "solid", "-1" = "dashed")) +
+  labs(title = "Balanced Network",
+       edge_color = "Edge Sign", 
+       edge_linetype = "Edge Sign") +
+  theme_graph()
+
+```
+
+Nella stagione 2, uno dei personaggi con il massimo livello di
+coinvolgimento relazionale è Miranda Bailey. Il dato è coerente con la
+sua funzione narrativa: Bailey è un vero nodo della vita ospedaliera,
+costantemente coinvolta nei rapporti con gli specializzandi, con i
+superiori, con i casi clinici e con i conflitti professionali e
+disciplinari. La sua posizione la rende un punto di connessione tra
+autorità, controllo e tensione, e proprio per questo il suo profilo
+relazionale risulta estremamente denso. Accanto a lei, anche Richard
+Webber ottiene il valore massimo, in modo perfettamente coerente con il
+suo ruolo di capo del Seattle Grace e punto di riferimento
+istituzionale.
+
+Diverso è il caso di Meredith, che mantiene un valore alto ma non
+massimo. Questo dato non implica una minore importanza narrativa, bensì
+suggerisce che, nella configurazione specifica delle relazioni signed,
+Meredith non sia il nodo più saturo di legami marcati.
+
+```{r}
+E(rete)$sign <- as.numeric(as.character(E(rete)$sign))
+
+degree_signed_tab<- degree_signed(rete, type = "ratio")
+
+degree_signed_tab = data.frame(
+  Nome = nodi,
+  Due = degree_signed_tab
+)
+
+degree_signed_tab %>% arrange(desc(Due))
+```
+
+```{r}
+nodi2 = V(rete2)$Nome
+E(rete2)$sign <- as.numeric(as.character(E(rete2)$sign))
+degree_signed_tab_7<- degree_signed(rete2, type = "ratio")
+
+degree_signed_tab_7 = data.frame(
+  Nome = nodi2,
+  Sette = degree_signed_tab_7
+)
+
+degree_signed_tab_7 %>% arrange(desc(Sette))
+```
+
+```{r}
+full_join_deg = full_join(degree_signed_tab, degree_signed_tab_7, by = "Nome") %>% 
+  select(Nome, Due, Sette)
+
+df_long_pag <- pivot_longer(
+  full_join_deg,
+  cols = c(Due, Sette),
+  names_to = "stagioni",
+  values_to = "degree_signed"
+)
+ggplot(df_long_pag,
+       aes(x = Nome, y = degree_signed, fill = stagioni)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+```
+
+Il confronto con la stagione 7 mostra una trasformazione importante.
+Alcuni personaggi mantengono una posizione forte, ma il sistema nel suo
+complesso appare molto più distribuito. Richard, per esempio, conserva
+il valore massimo in entrambe le stagioni: si tratta di una continuità
+pienamente coerente con il suo ruolo di figura istituzionale stabile,
+che continua a fungere da punto di raccordo anche quando mutano i gruppi
+e le storyline. Miranda Bailey resta a sua volta molto alta, pur con una
+lieve flessione rispetto alla seconda stagione: questo non segnala una
+perdita di importanza, ma il fatto che nella settima stagione la sua
+funzione si colloca in una rete più ampia, nella quale anche altri
+personaggi occupano posizioni relazionali molto forti.
+
+Tra i cambiamenti più evidenti spicca la crescita di Derek, che passa da
+una posizione relativamente circoscritta a un coinvolgimento molto più
+ampio. Nella settima stagione Derek non è più definito quasi soltanto
+dal triangolo amoroso con Meredith e Addison, ma è pienamente inserito
+in una rete estesa di rapporti professionali, affettivi e decisionali.
+Un incremento altrettanto netto riguarda Mark, che nella seconda
+stagione occupava ancora una posizione meno strutturata, mentre nella
+settima è ormai pienamente integrato nelle principali dinamiche
+dell’ospedale e nelle relazioni con personaggi centrali come Callie,
+Lexie e Derek. Anche Callie cresce fino a raggiungere il valore massimo:
+se nella seconda stagione era ancora una figura in ingresso, legata
+soprattutto a George, nella settima diventa un personaggio pienamente
+centrale, inserito in una rete affettiva e professionale molto
+articolata.
+
+## **Quanto l’importanza della figura professionale del capo di chirurgia Richard coincide con la sua importanza all’interno della rete relazionale tra i personaggi? Rispetto alle diverse tipologie di relazioni conflittuali e non, di ogni personaggio, quanto ogni personaggio ha effettivamente un ruolo centrale nella rete?**
+
+```{r}
+eig_cent_signed = eigen_centrality_signed(rete)
+eig_cent_signed = sort(eig_cent_signed, decreasing = TRUE)
+data.frame(
+  nodi,
+  eig_cent_signed
+)
+```
+
+L'analisi congiunta di degree ed eigenvector centrality mostra che,
+nella seconda stagione, la centralita istituzionale non coincide
+perfettamente con la centralita relazionale. Richard Webber è senza
+dubbio una figura fondamentale: è il capo di chirurgia, prende decisioni
+importanti, rappresenta l'autorita del Seattle Grace e orienta le
+traiettorie professionali di molti personaggi. Tuttavia, la rete
+narrativa della stagione 2 ruota soprattutto attorno a Meredith, Derek,
+Cristina, George, Izzie e Burke, cioè ai personaggi più direttamente
+coinvolti negli intrecci affettivi, amicali e conflittuali che
+strutturano la trama quotidiana. Richard occupa quindi una posizione più
+verticale che pienamente reticolare: ha autorita su molti, ma non
+partecipa con la stessa intensita al tessuto delle relazioni orizzontali
+che definiscono il cuore del gruppo.
+
+```{r}
+deg_signed = degree_signed(rete, type="net")
+
+col_nodes <- rainbow(length(nodi))
+names(col_nodes) <- nodi
+
+plot(deg_signed, eig_cent_signed,
+     xlab = "Degree signed",
+     ylab = "Eigenvector centrality signed",
+     pch = 19,
+     col = col_nodes, 
+     xlim = c(-3, 13.3),
+     ylim = c(-0.5, 1))
+text(deg_signed, eig_cent_signed,
+     labels = nodi,
+     pos = 4,      # a destra del punto
+     cex = 0.8)
+
+abline(h = 0, v = 0, col = "grey")
+
+
+```
+
+Il grafico permette di distinguere quattro profili principali. Il primo
+è quello dei personaggi molto centrali nella rete, collocati idealmente
+nella zona alta a destra: figure che hanno sia molti legami sia
+connessioni con nodi a loro volta molto centrali. In questo gruppo
+rientrano soprattutto Meredith, George, Cristina, Burke e Izzie.
+
+Un secondo profilo riguarda i personaggi che hanno molte relazioni, ma
+che risultano meno immersi nel nucleo più denso delle interazioni
+reciproche tra protagonisti. Qui emergono soprattutto Miranda Bailey e
+Richard Webber. Il risultato è particolarmente interessante perché
+mostra come la loro importanza sia soprattutto istituzionale, gerarchica
+e professionale.
+
+Un terzo profilo comprende i personaggi che risultano molto centrali dal
+punto di vista simbolico o narrativo, pur avendo una rete meno ampia. Il
+caso più evidente è quello di Derek, e in parte quello di Alex. Derek
+presenta infatti un eigenvector molto elevato, ma un degree non
+particolarmente alto: ciò significa che non è il personaggio con il
+maggior numero di relazioni diffuse, ma che i legami che possiede sono
+con nodi di grandissima importanza. È un risultato perfettamente
+coerente con la stagione 2, in cui Derek è soprattutto coinvolto in
+relazioni cruciali con Meredith e Addison e, attraverso queste, con il
+nucleo centrale del Seattle Grace.
+
+Infine, il quarto profilo è quello dei personaggi periferici o poco
+integrati, collocabili in prossimità dell'origine o comunque lontani dal
+nucleo principale della rete. Tra questi si possono collocare Mark,
+Callie, Denny, Erika, Finn e Adele, mentre Addison occupa una posizione
+intermedia. In questi casi la centralita risulta più limitata o
+circoscritta. Mark è ancora relativamente periferico.
+
+## **E’ possibile individuare delle comunità relazionali tra i personaggi della seconda stagione? Come variano le comunità individuate nella settimana stagione?**
+
+```{r}
+c = cluster_leading_eigen ( rete )
+
+plot(c, rete, layout= layout_with_kk(rete), vertex.label = nodi, vertex.label.cex = 0.8, vertex.label.dist = 2, vertex.label.font = 2)
+```
+
+L’analisi del clustering mostra che la rete della seconda stagione si
+organizza attorno a due comunità principali che non corrispondono
+semplicemente a gruppi professionali, ma a due poli narrativi e
+relazionali distinti. Da un lato emerge un cluster legato al nucleo
+giovane, emotivo e orizzontale della stagione; dall’altro si riconosce
+un cluster più vicino alla gerarchia adulta, alle relazioni sentimentali
+mature e alle strutture esterne o superiori rispetto al gruppo degli
+intern. Questa divisione suggerisce che la seconda stagione sia ancora
+costruita su una tensione abbastanza leggibile tra il mondo della
+formazione e quello dell’autorità, tra la coralità dei giovani medici e
+la dimensione più istituzionale e adulta dell’ospedale.
+
+```{r}
+c7 = cluster_leading_eigen ( rete2 )
+
+plot(c7, rete2, layout= layout_with_kk(rete2), vertex.label = nodi2, vertex.label.cex = 0.8, vertex.label.dist = 2, vertex.label.font = 2)
+```
+
+Se si passa alla settima stagione, il quadro cambia in modo netto. La
+rete non appare più bipolare come nella seconda, ma molto più
+articolata, policentrica e stratificata. I personaggi non si
+distribuiscono più in due soli blocchi riconoscibili, ma in più comunità
+parzialmente sovrapposte. Questo suggerisce che nella settima stagione
+le linee narrative siano più numerose, i personaggi più autonomi e le
+relazioni meno riducibili alla semplice opposizione tra giovani medici e
+figure senior. In altre parole, la rete non si regge più sul contrasto
+tra apprendisti e strutturati, ma su una pluralità di nuclei maturi
+interdipendenti.
+
+## **Quali sono le parole che vengono utilizzate più frequentemente? Le parole maggiormente utilizzate sono coerenti con la trama trattata nella seconda stagione? Quali tipi di temi e sentimenti vengono trattati? Quali sono le parole maggiormente utilizzate che esprimono sentimenti positivi o negativi?**
+
+```{r}
+testo <- readLines("sott_stag_2.txt")
+
+saveRDS(testo, "sott_stag_2.rds")
+
+sott_stag_2 <- readRDS("sott_stag_2.rds")
+
+dati <- data.frame(
+     text = sott_stag_2
+)
+
+filler_words <- c("yeah", "uh", "um", "eh", "ah", "hey", "gonna", "nah", "dr", "o.r", "hmm", "l")
+nomi_propri <- c("george", "meredith", "burke", "derek", "shepherd", "izzie", "grey", "o'malley", "bailey", "bob", "patricia" , "noah","jack", "jerry", "jana", "kate" , "karev", "cristina", "yang", "alex" , "stevens", "denny", "addison", "preston", "bailey's" , "richard", "ellis", "hannah", "mark", "burke's", "olivia", "meredith's", "montgomery")
+
+tidy <- dati %>%
+ unnest_tokens(word, text) %>%
+  anti_join(stop_words)  %>%
+  filter(!word %in% filler_words) %>%
+  filter(!word %in% nomi_propri)
+
+tidy %>%
+  count(word, sort = TRUE)
+
+```
+
+```{r}
+tidy %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100, 
+                 colors = c("red", "blue", "green", "orange")))
+```
+
+L’analisi della word cloud della seconda stagione mostra che *Grey’s
+Anatomy* non si costruisce soltanto attorno ai casi clinici, ma su un
+intreccio continuo tra medicina, relazioni personali, conflitti
+sentimentali e linguaggio quotidiano. Le parole più evidenti - come
+*heart, patient, hospital, doctor, pain, die, wife, husband, baby, home,
+friends, talk, fine* - suggeriscono infatti la coesistenza di almeno
+quattro nuclei lessicali principali: il lessico medico-ospedaliero,
+quello affettivo e familiare, quello della crisi e dell’urgenza, e
+infine quello colloquiale della conversazione quotidiana. Questa
+compresenza è coerente con la struttura della stagione, che alterna
+costantemente emergenze cliniche, crescita professionale, tensioni
+amorose e momenti di vulnerabilità privata.
+
+```{r}
+
+bing_word_counts <- tidy %>% 
+  inner_join ( get_sentiments ( "bing" )) %>% 
+  count ( word , sentiment , sort = TRUE ) %>% 
+  ungroup ()
+
+bing_word_counts
+```
+
+```{r}
+bing_word_counts %>% 
+  group_by ( sentiment ) %>% 
+  top_n ( 10 ) %>% 
+  ungroup () %>% 
+  mutate ( word = reorder ( word , n )) %>% 
+  ggplot ( aes ( word , n , fill = sentiment )) + 
+  geom_col ( show.legend = FALSE ) + 
+  facet_wrap (~ sentiment , scales = "free_y" ) + 
+  labs ( y = "Contributo al sentiment" , 
+         x = NULL ) + 
+  coord_flip () 
+```
+
+I grafici mostrano che, nella seconda stagione di *Grey’s Anatomy*, le
+parole con connotazione positiva più frequenti sono soprattutto fine,
+patient e love, mentre tra quelle negative emergono soprattutto bad, die
+e pain. Questo risultato è molto coerente con la struttura narrativa
+della stagione, che alterna continuamente due livelli: da un lato la
+dimensione affettiva e relazionale, dall’altro quella clinica e
+drammatica.
+
+## Conclusioni
+
+Il confronto tra la seconda e la settima stagione di *Grey's Anatomy*
+evidenzia una significativa evoluzione della struttura della rete
+sociale dei personaggi, riflettendo i cambiamenti narrativi che
+caratterizzano la serie nel corso del tempo.
+
+Nella seconda stagione la rete risulta fortemente concentrata attorno a
+pochi personaggi chiave.
+
+La narrazione è ancora fortemente costruita intorno agli specializzandi
+originali e ai loro tutor, con una struttura relativamente gerarchica in
+cui pochi individui fungono da intermediari tra le diverse storyline.
+
+Nella settima stagione, invece, la rete tende a diventare più articolata
+e distribuita. L'ingresso di nuovi personaggi e l'evoluzione dei
+rapporti professionali e personali determinano una maggiore complessità
+delle interazioni. Le relazioni non ruotano più esclusivamente attorno
+ai protagonisti originari, ma coinvolgono un numero maggiore di
+personaggi che assumono ruoli di rilievo nella rete. Di conseguenza, la
+funzione di collegamento tra i diversi gruppi narrativi viene condivisa
+da più nodi, rendendo la struttura complessiva meno dipendente da pochi
+individui.
+
+Dal punto di vista narrativo, questo cambiamento riflette la maturazione
+della serie. Se nella seconda stagione il focus è principalmente sul
+percorso formativo degli specializzandi e sulle relazioni con i
+rispettivi supervisori, nella settima stagione molti di questi
+personaggi sono ormai medici affermati, con responsabilità professionali
+e personali che ampliano il numero e la varietà delle loro interazioni.
+Parallelamente, la presenza di nuovi chirurghi e di nuove dinamiche
+relazionali contribuisce a rendere la rete più ricca e interconnessa.
